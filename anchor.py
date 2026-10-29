@@ -2,9 +2,10 @@
 
 import argparse
 import json
-import msvcrt
 import os
+import platform
 import queue
+import shutil
 import subprocess
 import threading
 import time
@@ -12,7 +13,11 @@ from datetime import datetime
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-DATA_DIR = Path(os.environ.get("LOCALAPPDATA", Path.home() / "AppData" / "Local")) / "CodexQuotaAnchor"
+IS_WINDOWS = platform.system() == "Windows"
+if IS_WINDOWS:
+    DATA_DIR = Path(os.environ.get("LOCALAPPDATA", Path.home() / "AppData" / "Local")) / "CodexQuotaAnchor"
+else:
+    DATA_DIR = Path(os.environ.get("XDG_STATE_HOME", Path.home() / ".local" / "state")) / "codex-quota-anchor"
 STATE = DATA_DIR / "state.json"
 LOG = DATA_DIR / "events.jsonl"
 LOCK = DATA_DIR / "run.lock"
@@ -31,19 +36,24 @@ def log(event, **fields):
 
 
 def codex_path():
+    configured = os.environ.get("CODEX_QUOTA_CODEX_PATH")
+    if configured and Path(configured).is_file():
+        return configured
     found = shutil_which("codex")
     if found:
         return found
-    base = Path(os.environ["LOCALAPPDATA"]) / "OpenAI" / "Codex" / "bin"
-    files = list(base.glob("*/codex.exe"))
+    if IS_WINDOWS:
+        base = Path(os.environ.get("LOCALAPPDATA", "")) / "OpenAI" / "Codex" / "bin"
+        files = list(base.glob("*/codex.exe"))
+    else:
+        files = [path for path in (Path.home() / ".local" / "bin" / "codex", Path("/usr/local/bin/codex")) if path.is_file()]
     if not files:
         raise RuntimeError("Codex CLI를 찾지 못했습니다.")
     return str(max(files, key=lambda file: file.stat().st_mtime))
 
 
 def shutil_which(name):
-    from shutil import which
-    return which(name)
+    return shutil.which(name)
 
 
 def read_limits():
@@ -136,15 +146,27 @@ def send_turn():
         raise RuntimeError("Codex 요청 완료를 확인하지 못했습니다.")
 
 
-def notify_windows():
+def notify_user():
+    if IS_WINDOWS:
+        command = [
+            "powershell.exe", "-NoProfile", "-NonInteractive", "-STA",
+            "-WindowStyle", "Hidden", "-ExecutionPolicy", "Bypass", "-File",
+            str(HERE / "notify.ps1"),
+        ]
+    else:
+        notifier = shutil.which("notify-send")
+        if not notifier:
+            raise RuntimeError("notify-send를 찾지 못했습니다. libnotify-bin을 설치하세요.")
+        command = [
+            notifier,
+            "Codex quota window anchored",
+            "The automatic request was sent successfully. The next 5-hour window has started.",
+        ]
     result = subprocess.run(
-        ["powershell.exe", "-NoProfile", "-NonInteractive", "-STA",
-         "-WindowStyle", "Hidden", "-ExecutionPolicy", "Bypass", "-File",
-         str(HERE / "notify.ps1")],
-        cwd=HERE, capture_output=True, text=True, encoding="utf-8", timeout=25,
+        command, cwd=HERE, capture_output=True, text=True, encoding="utf-8", timeout=25,
     )
     if result.returncode:
-        raise RuntimeError(f"Windows 알림 실패: {result.stderr[-500:]}")
+        raise RuntimeError(f"사용자 알림 실패: {result.stderr[-500:]}")
 
 
 def acquire_lock():
@@ -154,7 +176,12 @@ def acquire_lock():
         lock_file.flush()
     lock_file.seek(0)
     try:
-        msvcrt.locking(lock_file.fileno(), msvcrt.LK_NBLCK, 1)
+        if IS_WINDOWS:
+            import msvcrt
+            msvcrt.locking(lock_file.fileno(), msvcrt.LK_NBLCK, 1)
+        else:
+            import fcntl
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
     except OSError:
         lock_file.close()
         return None
@@ -201,7 +228,7 @@ def run():
             log("sent_next_reset_unverified", error=str(exc))
         save_state(state)
         try:
-            notify_windows()
+            notify_user()
             log("notified")
         except Exception as exc:
             log("notification_error", message=str(exc))
@@ -210,7 +237,12 @@ def run():
         raise
     finally:
         lock_file.seek(0)
-        msvcrt.locking(lock_file.fileno(), msvcrt.LK_UNLCK, 1)
+        if IS_WINDOWS:
+            import msvcrt
+            msvcrt.locking(lock_file.fileno(), msvcrt.LK_UNLCK, 1)
+        else:
+            import fcntl
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
         lock_file.close()
 
 
