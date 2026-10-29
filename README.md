@@ -43,6 +43,25 @@ powershell -ExecutionPolicy Bypass -File .\install.ps1
 
 설치 후에는 컴퓨터를 켤 때마다 직접 실행할 필요가 없습니다. 저장소 폴더를 다른 위치로 옮겼다면 새 위치에서 `install.ps1`을 다시 실행하세요.
 
+## 파일 구조
+
+```text
+codex-quota-anchor/
+├─ anchor.py       # 한도 조회, 자동 요청, 상태 저장을 담당하는 메인 프로그램
+├─ install.ps1     # 10분 간격 Windows 예약 작업 설치 및 갱신
+├─ uninstall.ps1   # Windows 예약 작업 제거
+├─ notify.ps1      # 자동 요청 성공 후 Windows 알림 표시
+├─ README.md       # 설치 및 사용 설명서
+└─ .gitignore      # 로그, 상태 파일, Python 캐시의 Git 업로드 제외
+
+%LOCALAPPDATA%/CodexQuotaAnchor/
+├─ state.json      # 다음 초기화 목표 시각과 마지막 자동 요청 시각
+├─ events.jsonl    # 조회, 요청, 알림, 오류 기록
+└─ run.lock        # 동시에 두 번 실행되는 것을 막는 잠금 파일
+```
+
+위쪽은 GitHub에서 내려받는 프로그램 파일입니다. 아래쪽은 실행 중 각 사용자 PC에 자동으로 생성되는 개인 데이터이며 GitHub 저장소에는 포함되지 않습니다.
+
 ## 작동 방식
 
 1. Windows 작업 스케줄러가 10분마다 `anchor.py run`을 실행합니다.
