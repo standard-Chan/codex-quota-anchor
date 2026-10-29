@@ -1,0 +1,10 @@
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Runtime files created by older versions
+.lock
+state.json
+state.tmp
+events.jsonl
