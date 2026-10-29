@@ -1,6 +1,6 @@
 param(
-    [string]$Title = 'Codex 한도 기준점 설정',
-    [string]$Message = '5시간 한도 초기화 후 자동 요청을 보냈습니다.'
+    [string]$Title = 'Codex quota window anchored',
+    [string]$Message = 'The automatic request was sent successfully. The next 5-hour window has started.'
 )
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Windows.Forms
